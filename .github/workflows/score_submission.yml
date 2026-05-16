@@ -1,3 +1,4 @@
+
 name: Score Submission
 
 on:
@@ -8,28 +9,22 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: leaderboard-update
-  cancel-in-progress: false
-
 jobs:
   score:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repository
+      # Checkout the PR branch
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Checkout PR branch
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      # Check secret token
       - name: Check token exists
         run: |
           if [ -z "${{ secrets.PRIVATE_REPO_TOKEN }}" ]; then
@@ -39,7 +34,7 @@ jobs:
             echo "TOKEN EXISTS ✅"
           fi
 
-      # Checkout private evaluation repository
+      # Checkout private evaluation repo
       - name: Checkout private evaluation repo
         uses: actions/checkout@v4
         with:
@@ -47,12 +42,11 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           path: private_eval
 
-      # Debug private repo
       - name: Debug private repo
         run: |
           echo "Listing private_eval:"
           ls -R private_eval
-
+ 
       # Setup Python
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,49 +55,41 @@ jobs:
 
       # Install dependencies
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-      # Debug repo structure
+      # List repo structure for debugging
       - name: Debug repo structure
         run: |
           echo "Listing all files recursively:"
           ls -R
 
-      # Find encrypted submission file
+      # Find all .enc files recursively
       - name: Find submission files
         id: files
         run: |
           FILES=$(find submissions -type f -name "*.enc")
-
           echo "All .enc files found:"
           echo "$FILES"
-
           FIRST_FILE=$(echo "$FILES" | head -n 1)
-
           echo "First file to process: $FIRST_FILE"
-
           echo "file=$FIRST_FILE" >> $GITHUB_OUTPUT
 
-      # Ensure submission exists
+      # Check submission file exists
       - name: Check submission file
         run: |
           if [ -z "${{ steps.files.outputs.file }}" ]; then
             echo "ERROR: No .enc submission file found in submissions/"
             exit 1
           fi
-
           echo "Submission file exists: ${{ steps.files.outputs.file }}"
 
-      # Ensure private key exists
+      # Check that private key secret is set
       - name: Check private key secret
         run: |
           if [ -z "$SUBMISSION_PRIVATE_KEY" ]; then
             echo "ERROR: SUBMISSION_PRIVATE_KEY is not set!"
             exit 1
           fi
-
           echo "Private key secret is set."
         env:
           SUBMISSION_PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
@@ -116,6 +102,24 @@ jobs:
           python encryption/decrypt.py "${{ steps.files.outputs.file }}"
 
       # Evaluate submission
+     # - name: Evaluate submission
+       # id: eval
+      #  run: |
+        #  CSV_FILE="${{ steps.files.outputs.file }}"
+        #  CSV_FILE="${CSV_FILE%.enc}.csv"
+
+         # SCORE=$(python competition/evaluate.py \
+         # "$CSV_FILE" \
+        #  private_eval/test_labels.csv | grep SCORE | cut -d "=" -f2)
+
+         # echo "score=$SCORE" >> $GITHUB_OUTPUT
+
+      # Append to leaderboard
+     # - name: Append to leaderboard
+      #  run: |
+       #   echo "${{ github.actor }},${{ steps.eval.outputs.score }},$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> docs/leaderboard.csv
+
+            # Evaluate submission
       - name: Evaluate submission
         id: eval
         run: |
@@ -123,7 +127,7 @@ jobs:
           CSV_FILE="${CSV_FILE%.enc}.csv"
 
           echo "Running evaluation..."
-
+          
           OUTPUT=$(python competition/evaluate.py \
           "$CSV_FILE" \
           private_eval/test_target_labels.csv)
@@ -132,47 +136,34 @@ jobs:
           echo "$OUTPUT"
           echo "============================="
 
-          # Extract SCORE
+          # Extract SCORE safely
           SCORE=$(echo "$OUTPUT" | sed -n 's/^SCORE=//p')
 
           echo "Extracted SCORE: $SCORE"
 
-          # Ensure score exists
+          # Fail if score is empty
           if [ -z "$SCORE" ]; then
             echo "ERROR: Score extraction failed!"
             exit 1
           fi
 
           echo "score=$SCORE" >> $GITHUB_OUTPUT
-
-      # Update leaderboard
-      - name: Update leaderboard
+      
+      # Commit leaderboard
+      - name: Commit leaderboard
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Always sync with latest main
+      
+          # Always start from latest main
           git fetch origin main
           git checkout main
           git reset --hard origin/main
-
-          # Remove previous score for this user
-          grep -v "^${{ github.actor }}," docs/leaderboard.csv > temp.csv || true
-          mv temp.csv docs/leaderboard.csv
-
-          # Append new score
+      
+          # Now apply your change
           echo "${{ github.actor }},${{ steps.eval.outputs.score }},$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> docs/leaderboard.csv
-
-          # Optional: sort leaderboard by score descending
-          (
-            head -n 1 docs/leaderboard.csv
-            tail -n +2 docs/leaderboard.csv | sort -t',' -k2 -nr
-          ) > sorted.csv
-
-          mv sorted.csv docs/leaderboard.csv
-
+      
           git add docs/leaderboard.csv
-
           git commit -m "Leaderboard update for ${{ github.actor }}" || exit 0
-
+      
           git push origin main
