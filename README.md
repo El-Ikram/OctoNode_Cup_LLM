@@ -212,7 +212,7 @@ The competition features a **dynamic, automatically updated leaderboard**.
 
 ✨Watch your team climb the ranks as you submit! 
 
-[View the live leaderboard](https://el-Ikram.github.io/OctoNode_Cup_LLM/leaderboard.html)
+[View the live leaderboard](https://El-Ikram.github.io/OctoNode_Cup_LLM/leaderboard.html)
 
 
 ## ⚡Quick Start
